@@ -14,22 +14,54 @@ html, body {
 }
 
 /* Premium scrollbar */
-::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: #334155;
-  border-radius: 999px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: #475569;
-}
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #334155; border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: #475569; }
 
 /* Table row hover glow */
 table tbody tr:hover {
   box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.15);
+}
+
+/* Priority Change Flash Animation */
+@keyframes priorityFlash {
+  0%   { background-color: rgba(234, 179, 8, 0.35); }
+  50%  { background-color: rgba(234, 179, 8, 0.10); }
+  100% { background-color: transparent; }
+}
+.priority-changed {
+  animation: priorityFlash 2.5s ease-out;
+}
+
+/* Priority Up glow */
+@keyframes priorityUp {
+  0%   { background-color: rgba(34, 197, 94, 0.30); }
+  100% { background-color: transparent; }
+}
+.priority-up {
+  animation: priorityUp 2.5s ease-out;
+}
+
+/* Priority Down glow */
+@keyframes priorityDown {
+  0%   { background-color: rgba(239, 68, 68, 0.30); }
+  100% { background-color: transparent; }
+}
+.priority-down {
+  animation: priorityDown 2.5s ease-out;
+}
+
+/* Route control button active pulse */
+@keyframes activePulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4); }
+  50%      { box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1); }
+}
+.route-btn-active {
+  animation: activePulse 2s infinite;
+}
+
+/* Factor bar shimmer */
+.factor-bar {
+  transition: width 0.5s ease-out;
 }

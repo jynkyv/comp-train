@@ -1,58 +1,69 @@
 /**
- * 铁道车辆智能调度与监控系统 - Mock 数据引擎
- * 对标 Python 版调度算法逻辑 (V3.2.6)
+ * 铁道车辆智能调度与监控系统 — 多维因素动态优先级引擎 V4.0
  *
- * 核心模块:
- *  - DataGenerator: 天气系数 × 基础速度 = 实际速度，高峰/平峰乘客量区分
- *  - EnhancedValidator: 速度校验(>350 截断)、优先级强制1-4
- *  - Scheduler: 速度分箱(qcut 4级)、恶劣天气优先级上限2、近站提权
- *  - PriorityAdjuster: 高峰期综合评分 speed*0.6 + passengers*0.4
+ * 五维评分因素:
+ *   1. 气象环境 (WeatherScore)       — 天气恶劣度影响车速
+ *   2. 线路状况 (TrackScore)         — 异物/施工影响通行
+ *   3. 运行状态 (PunctualityScore)   — 晚点程度影响让行决策
+ *   4. 路网衔接 (ConnectivityScore)   — 换乘接续任务加急
+ *   5. 经济效益 (RevenueScore)       — 客流上座率影响收益权重
  */
 
 // ─────────────────── Types ───────────────────
 
-export type WeatherType = '晴' | '多云' | '小雨' | '大雨' | '雪' | '雾';
+export type WeatherType = '晴' | '大雨' | '大风' | '雪' | '雾';
+export type TrackCondition = 'normal' | 'obstacle' | 'construction';
+
+export interface Route {
+  id: string;
+  origin: string;
+  destination: string;
+  distance: number;
+  weather: WeatherType;
+  trackCondition: TrackCondition;
+}
 
 export interface Train {
   id: string;
+  routeId: string;
+  routeName: string;
+  trainType: 'G' | 'D' | 'K';
+  designSpeed: number;
+  speed: number;
+  position: number;
+  passengers: number;
+  capacity: number;
+  loadRate: number;
+  priority: number;
+  prevPriority: number;
+  priorityChanged: boolean;
+  priorityReason: string;
+  weatherScore: number;
+  trackScore: number;
+  punctualityScore: number;
+  connectivityScore: number;
+  revenueScore: number;
+  totalScore: number;
   weather: WeatherType;
   weatherIcon: string;
-  speed: number;
-  position: number;       // 0 ~ 1000 km
-  temperature: number;
-  passengers: number;
-  priority: number;       // 1(最高) ~ 4(最低)
-  priorityScore: number;  // 高峰期综合评分
+  trackCondition: TrackCondition;
+  isDelayed: boolean;
+  delayMinutes: number;
+  hasTransferTask: boolean;
+  affectsFollowing: boolean;
+  status: 'normal' | 'delayed' | 'warning' | 'stopped';
+  voltage: number;
+  brakingDist: number;
+  eta: number;
+  friction: number;
   timestamp: string;
-  status: 'normal' | 'delayed' | 'warning';
-  // ── 新增：深度遥测数据 ──
-  voltage: number;        // 触网电压 kV (25.0 ~ 29.0)
-  brakingDist: number;    // 预估制动距离 m
-  eta: number;            // 下一站 ETA (min)
-  friction: number;       // 轨面对接系数 (0.0 ~ 1.0)
 }
 
 export interface SystemHistory {
   tick: number;
   avgSpeed: number;
   passengers: number;
-  powerLoad: number;      // 模拟电网负载
-}
-
-export interface SystemState {
-  trains: Train[];
-  isPeakHours: boolean;
-  alerts: Alert[];
-  history: SystemHistory[]; // 新增：用于绘制实时折线图
-  stats: {
-    totalPassengers: number;
-    maxSpeed: number;
-    avgSpeed: number;
-    weatherWarnings: number;
-    onTimeRate: number;
-    powerGridLoad: number;  // 整体电网负载 %
-  };
-  tickCount: number;
+  priorityChanges: number;
 }
 
 export interface Alert {
@@ -62,351 +73,295 @@ export interface Alert {
   level: 'info' | 'warning' | 'danger' | 'success';
 }
 
+export interface SystemState {
+  routes: Route[];
+  trains: Train[];
+  isPeakHours: boolean;
+  alerts: Alert[];
+  history: SystemHistory[];
+  stats: {
+    totalPassengers: number;
+    maxSpeed: number;
+    avgSpeed: number;
+    weatherWarnings: number;
+    onTimeRate: number;
+    trackIssues: number;
+    priorityChanges: number;
+  };
+  tickCount: number;
+}
+
 // ─────────────────── Constants ───────────────────
 
-const WEATHER_CONDITIONS: Record<WeatherType, { ratio: number; icon: string }> = {
-  '晴':   { ratio: 1.00, icon: '☀️' },
-  '多云': { ratio: 0.95, icon: '⛅' },
-  '小雨': { ratio: 0.85, icon: '🌧️' },
-  '大雨': { ratio: 0.75, icon: '⛈️' },
-  '雪':   { ratio: 0.65, icon: '❄️' },
-  '雾':   { ratio: 0.80, icon: '🌫️' },
+const WEATHER_CFG: Record<WeatherType, { ratio: number; icon: string; score: number }> = {
+  '晴':   { ratio: 1.00, icon: '☀️', score: 100 },
+  '大雨': { ratio: 0.70, icon: '⛈️', score: 35 },
+  '大风': { ratio: 0.65, icon: '🌪️', score: 30 },
+  '雪':   { ratio: 0.60, icon: '❄️', score: 25 },
+  '雾':   { ratio: 0.75, icon: '🌫️', score: 45 },
 };
 
-const WEATHER_KEYS = Object.keys(WEATHER_CONDITIONS) as WeatherType[];
+const TRACK_CFG: Record<TrackCondition, { factor: number; score: number; label: string }> = {
+  normal:       { factor: 1.0, score: 100, label: '畅通' },
+  construction: { factor: 0.4, score: 35,  label: '施工限速' },
+  obstacle:     { factor: 0.1, score: 10,  label: '异物侵限' },
+};
 
-// ─────────────────── DataGenerator ───────────────────
+// ─────────────────── Route & Train Definitions ───────────────────
 
-function randomInt(min: number, max: number): number {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
+const INITIAL_ROUTES: Route[] = [
+  { id: 'R1', origin: '齐齐哈尔', destination: '哈尔滨', distance: 359, weather: '晴', trackCondition: 'normal' },
+  { id: 'R2', origin: '鹤岗',     destination: '哈尔滨', distance: 410, weather: '晴', trackCondition: 'normal' },
+  { id: 'R3', origin: '佳木斯',   destination: '哈尔滨', distance: 510, weather: '晴', trackCondition: 'normal' },
+  { id: 'R4', origin: '牡丹江',   destination: '哈尔滨', distance: 380, weather: '晴', trackCondition: 'normal' },
+  { id: 'R5', origin: '大庆',     destination: '哈尔滨', distance: 150, weather: '晴', trackCondition: 'normal' },
+];
+
+interface TrainDef {
+  id: string; routeId: string; type: 'G' | 'D' | 'K'; designSpeed: number; capacity: number;
+  initPositionRatio: number; initLoadRatio: number;
 }
 
-function randomFloat(min: number, max: number): number {
-  return Math.random() * (max - min) + min;
-}
+const TRAIN_DEFS: TrainDef[] = [
+  { id: 'G708',  routeId: 'R1', type: 'G', designSpeed: 300, capacity: 1200, initPositionRatio: 0.25, initLoadRatio: 0.88 },
+  { id: 'D6902', routeId: 'R1', type: 'D', designSpeed: 200, capacity: 800,  initPositionRatio: 0.55, initLoadRatio: 0.65 },
+  { id: 'K930',  routeId: 'R2', type: 'K', designSpeed: 120, capacity: 1500, initPositionRatio: 0.40, initLoadRatio: 0.48 },
+  { id: 'D6508', routeId: 'R3', type: 'D', designSpeed: 200, capacity: 800,  initPositionRatio: 0.30, initLoadRatio: 0.72 },
+  { id: 'D7816', routeId: 'R3', type: 'D', designSpeed: 200, capacity: 800,  initPositionRatio: 0.70, initLoadRatio: 0.55 },
+  { id: 'G714',  routeId: 'R4', type: 'G', designSpeed: 300, capacity: 1200, initPositionRatio: 0.20, initLoadRatio: 0.82 },
+  { id: 'D6502', routeId: 'R4', type: 'D', designSpeed: 200, capacity: 800,  initPositionRatio: 0.60, initLoadRatio: 0.42 },
+  { id: 'G2624', routeId: 'R5', type: 'G', designSpeed: 300, capacity: 1200, initPositionRatio: 0.35, initLoadRatio: 0.78 },
+];
 
-function nowTimeStr(): string {
+// ─────────────────── Mutable State ───────────────────
+
+interface TrainState { position: number; passengers: number; delayMinutes: number; hasTransferTask: boolean; }
+
+let routes: Route[] = JSON.parse(JSON.stringify(INITIAL_ROUTES));
+const trainStates = new Map<string, TrainState>();
+let alertIdSeq = 0;
+let alertBuffer: Alert[] = [];
+let tickCount = 0;
+let sysHistory: SystemHistory[] = [];
+let forcePeak: boolean | null = null;
+const prevPriorities = new Map<string, number>();
+
+// Init
+TRAIN_DEFS.forEach(td => {
+  const r = routes.find(x => x.id === td.routeId)!;
+  trainStates.set(td.id, {
+    position: r.distance * td.initPositionRatio,
+    passengers: Math.round(td.capacity * td.initLoadRatio),
+    delayMinutes: 0,
+    hasTransferTask: false,
+  });
+});
+
+// ─────────────────── Helpers ───────────────────
+
+function rf(min: number, max: number) { return Math.random() * (max - min) + min; }
+
+function timeStr(): string {
   const d = new Date();
-  return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}`;
+  return `${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}:${d.getSeconds().toString().padStart(2,'0')}`;
 }
 
-function isPeakHours(): boolean {
+function isNowPeak(): boolean {
   const h = new Date().getHours();
   return (h >= 7 && h < 9) || (h >= 17 && h < 19);
 }
 
-/** 生成列车原始数据，对标 DataGenerator.generate_train_data */
-function generateTrainData(numTrains: number = 8, forcePeak: boolean | null = null): Train[] {
-  const peak = forcePeak !== null ? forcePeak : isPeakHours();
-  const trains: Train[] = [];
-
-  for (let i = 1; i <= numTrains; i++) {
-    const weatherKey = WEATHER_KEYS[randomInt(0, WEATHER_KEYS.length - 1)];
-    const { ratio, icon } = WEATHER_CONDITIONS[weatherKey];
-    const baseSpeed = randomInt(150, 300);
-    const actualSpeed = Math.round(baseSpeed * ratio);
-    const [pMin, pMax] = peak ? [1500, 2500] : [800, 1500];
-
-    const distanceToStation = randomFloat(5, 500); // 假定下一站距离
-    
-    trains.push({
-      id: `G${i.toString().padStart(2, '0')}`,
-      weather: weatherKey,
-      weatherIcon: icon,
-      speed: actualSpeed,
-      position: randomFloat(0, 1000),
-      temperature: randomInt(-10, 40),
-      passengers: randomInt(pMin, pMax),
-      priority: 0,
-      priorityScore: 0,
-      timestamp: nowTimeStr(),
-      status: 'normal',
-      voltage: Number(randomFloat(25.0, 27.5).toFixed(1)),
-      brakingDist: Math.round((actualSpeed * actualSpeed) / 100), // 简单的动能模拟
-      eta: Math.round((distanceToStation / Math.max(1, actualSpeed)) * 60),
-      friction: Number(randomFloat(0.7, 0.95).toFixed(2)),
-    });
-  }
-
-  // 处理速度重复：若最后两列车速度相同，末班车+10km/h
-  if (trains.length >= 2) {
-    const speeds = new Set(trains.map(t => t.speed));
-    if (speeds.size === 1) {
-      trains[trains.length - 1].speed += 10;
-    }
-  }
-
-  return trains;
+function addAlert(level: Alert['level'], msg: string) {
+  alertBuffer.push({ id: ++alertIdSeq, time: timeStr(), message: msg, level });
+  if (alertBuffer.length > 30) alertBuffer = alertBuffer.slice(-30);
 }
 
-// ─────────────────── EnhancedValidator ───────────────────
+// ─────────────────── Core Tick ───────────────────
 
-function validateSpeed(trains: Train[]): Train[] {
-  // 速度变化不足
-  const uniqueSpeeds = new Set(trains.map(t => t.speed));
-  if (uniqueSpeeds.size < 2) {
-    const minSpeed = Math.min(...trains.map(t => t.speed));
-    trains.forEach(t => {
-      if (t.speed === minSpeed) {
-        t.speed += 1;
-      }
-    });
-    addAlert('warning', '[数据校验] 速度值变化不足，已启用备用微调校验');
-  }
+const SIM_MIN_PER_TICK = 5; // 1 tick = 5 simulated minutes
 
-  // 超速截断 >350 => 350
-  trains.forEach(t => {
-    if (t.speed > 350) {
-      addAlert('warning', `[数据校验] 列车 ${t.id} 速度异常 (${t.speed} km/h)，已修正为 350 km/h`);
-      t.speed = 350;
+export function tick(): SystemState {
+  tickCount++;
+  const peak = forcePeak !== null ? forcePeak : isNowPeak();
+  let priorityChanges = 0;
+
+  // — Build train snapshots —
+  const trains: Train[] = TRAIN_DEFS.map(td => {
+    const route = routes.find(r => r.id === td.routeId)!;
+    const st = trainStates.get(td.id)!;
+    const wCfg = WEATHER_CFG[route.weather];
+    const tCfg = TRACK_CFG[route.trackCondition];
+
+    // Speed
+    let speed = Math.round(td.designSpeed * wCfg.ratio * tCfg.factor * rf(0.95, 1.05));
+    speed = Math.max(0, Math.min(td.designSpeed, speed));
+
+    // Advance position
+    st.position += (speed * SIM_MIN_PER_TICK) / 60;
+    if (st.position >= route.distance) {
+      st.position = 0;
+      st.delayMinutes = 0;
+      addAlert('success', `[到站] ${td.id} 抵达${route.destination}站，折返${route.origin}重新发车`);
     }
+
+    // Delay accumulation
+    if (speed < td.designSpeed * 0.8) {
+      st.delayMinutes += Math.round(((td.designSpeed - speed) / td.designSpeed) * SIM_MIN_PER_TICK);
+    } else if (st.delayMinutes > 0) {
+      st.delayMinutes = Math.max(0, st.delayMinutes - 1);
+    }
+
+    // Passenger fluctuation
+    if (peak && Math.random() < 0.3) st.passengers = Math.min(td.capacity, st.passengers + Math.round(Math.random() * 40));
+    if (!peak && Math.random() < 0.2) st.passengers = Math.max(50, st.passengers - Math.round(Math.random() * 30));
+    const loadRate = Math.round((st.passengers / td.capacity) * 100);
+
+    // Status
+    let status: Train['status'] = 'normal';
+    if (route.trackCondition === 'obstacle') status = 'stopped';
+    else if (route.trackCondition === 'construction' || route.weather === '大雨' || route.weather === '大风' || route.weather === '雪') status = 'warning';
+    else if (st.delayMinutes > 5) status = 'delayed';
+
+    const affectsFollowing = st.delayMinutes > 10;
+    const remaining = route.distance - st.position;
+    const eta = speed > 0 ? Math.round((remaining / speed) * 60) : 999;
+
+    // ——— Five-Factor Scoring ———
+    const weatherScore = wCfg.score;
+    const trackScore = tCfg.score;
+
+    let punctualityScore = 100;
+    if (st.delayMinutes > 15) punctualityScore = 15;
+    else if (st.delayMinutes > 5) punctualityScore = 40;
+    else if (st.delayMinutes > 0) punctualityScore = 70;
+    if (affectsFollowing) punctualityScore = Math.max(5, punctualityScore - 20);
+
+    const connectivityScore = st.hasTransferTask ? 100 : 50;
+
+    let revenueScore = 50;
+    if (loadRate >= 90) revenueScore = 100;
+    else if (loadRate >= 70) revenueScore = 80;
+    else if (loadRate >= 40) revenueScore = 55;
+    else if (loadRate >= 20) revenueScore = 30;
+    else revenueScore = 15;
+
+    // Weighted total (peak → revenue weight rises)
+    const W = peak
+      ? { w: 0.18, t: 0.22, p: 0.18, c: 0.15, r: 0.27 }
+      : { w: 0.20, t: 0.25, p: 0.20, c: 0.15, r: 0.20 };
+    const totalScore = Number((weatherScore * W.w + trackScore * W.t + punctualityScore * W.p + connectivityScore * W.c + revenueScore * W.r).toFixed(1));
+
+    const friction = route.weather === '雪' ? rf(0.55, 0.65) : route.weather === '大雨' ? rf(0.65, 0.75) : route.weather === '雾' ? rf(0.75, 0.82) : rf(0.85, 0.95);
+
+    return {
+      id: td.id, routeId: td.routeId,
+      routeName: `${route.origin}→${route.destination}`,
+      trainType: td.type, designSpeed: td.designSpeed,
+      speed, position: st.position,
+      passengers: st.passengers, capacity: td.capacity, loadRate,
+      priority: 0, prevPriority: prevPriorities.get(td.id) || 0,
+      priorityChanged: false, priorityReason: '',
+      weatherScore, trackScore, punctualityScore, connectivityScore, revenueScore, totalScore,
+      weather: route.weather, weatherIcon: wCfg.icon,
+      trackCondition: route.trackCondition,
+      isDelayed: st.delayMinutes > 0, delayMinutes: st.delayMinutes,
+      hasTransferTask: st.hasTransferTask, affectsFollowing, status,
+      voltage: Number(rf(24.5, 27.5).toFixed(1)),
+      brakingDist: Math.round((speed * speed) / 100),
+      eta, friction: Number(friction.toFixed(2)),
+      timestamp: timeStr(),
+    };
   });
 
-  return trains;
-}
-
-function validatePriority(trains: Train[]): Train[] {
-  trains.forEach(t => {
-    t.priority = Math.max(1, Math.min(4, Math.round(t.priority)));
-  });
-  return trains;
-}
-
-// ─────────────────── Scheduler ───────────────────
-
-/** 速度分箱(qcut)：将速度从大到小分为4级 (1=最快=最高优先, 4=最慢) */
-function qcutPriority(trains: Train[]): void {
-  const sorted = [...trains].sort((a, b) => b.speed - a.speed);
+  // ——— Assign Priority by totalScore ranking ———
+  const sorted = [...trains].sort((a, b) => b.totalScore - a.totalScore);
   const n = sorted.length;
-
-  sorted.forEach((t, idx) => {
-    const ratio = idx / n;
-    if (ratio < 0.2)       t.priority = 1;
-    else if (ratio < 0.5)  t.priority = 2;
-    else if (ratio < 0.8)  t.priority = 3;
-    else                    t.priority = 4;
+  sorted.forEach((t, i) => {
+    const r = i / n;
+    t.priority = r < 0.2 ? 1 : r < 0.5 ? 2 : r < 0.75 ? 3 : 4;
   });
+  const pMap = new Map(sorted.map(t => [t.id, t.priority]));
+  trains.forEach(t => { t.priority = pMap.get(t.id) || t.priority; });
 
-  // 写回
-  const map = new Map(sorted.map(t => [t.id, t.priority]));
-  trains.forEach(t => { t.priority = map.get(t.id) || t.priority; });
-}
-
-/**
- * 调度排期算法 — 对标 Scheduler.generate_schedule
- *  - 速度分箱为4级
- *  - 恶劣天气(大雨/雪) => 优先级上限为2
- *  - 接近车站(<50km) => 优先级-1 (更高)
- */
-function generateSchedule(trains: Train[]): Train[] {
-  // 前置校验
-  validateSpeed(trains);
-
-  try {
-    // 速度四分位分箱
-    qcutPriority(trains);
-
-    // 恶劣天气约束: 大雨/雪 => priority capped at 2
-    trains.forEach(t => {
-      if (t.weather === '大雨' || t.weather === '雪') {
-        t.priority = Math.min(t.priority, 2);
-      }
-    });
-  } catch {
-    // fallback: 按速度降序排名
-    const sorted = [...trains].sort((a, b) => b.speed - a.speed);
-    sorted.forEach((t, idx) => { t.priority = idx + 1; });
-    addAlert('warning', '[调度引擎] 分箱失败，使用备用排名方法');
-  }
-
-  // 约束1: 确保至少3个优先级层级
-  const uniquePriorities = new Set(trains.map(t => t.priority));
-  if (uniquePriorities.size < 3) {
-    const sorted = [...trains].sort((a, b) => a.speed - b.speed);
-    const n = sorted.length;
-    const binSize = Math.ceil(n / 3);
-    sorted.forEach((t, idx) => {
-      t.priority = 3 - Math.floor(idx / binSize);
-    });
-    const map = new Map(sorted.map(t => [t.id, t.priority]));
-    trains.forEach(t => { t.priority = map.get(t.id) || t.priority; });
-  }
-
-  // 约束2: 接近车站(<50km)优先级+提升(priority-1)
+  // ——— Derive priority reason ———
   trains.forEach(t => {
-    if (t.position < 50) {
-      t.priority = Math.max(1, t.priority - 1);
-      addAlert('info', `[进站调度] 列车 ${t.id} 接近车站 (${t.position.toFixed(1)}km)，优先级提升至 P${t.priority}`);
+    if (t.priority <= 2) {
+      if (t.hasTransferTask) t.priorityReason = '紧急换乘接续任务保障';
+      else if (t.revenueScore >= 80 && peak) t.priorityReason = '高峰高收益列车保障';
+      else if (t.weatherScore >= 80 && t.trackScore >= 80) t.priorityReason = '路况良好，优先放行';
+      else t.priorityReason = '综合评分优秀';
+    } else {
+      if (t.trackCondition === 'obstacle') t.priorityReason = '前方异物侵限，强制停车等待';
+      else if (t.trackCondition === 'construction') t.priorityReason = '施工限速区间，被动降级';
+      else if (t.weatherScore < 40) t.priorityReason = '恶劣天气限速，被动降级让行';
+      else if (t.delayMinutes > 10) t.priorityReason = '严重晚点，让行正点列车';
+      else if (t.loadRate < 30 && peak) t.priorityReason = '低客流，让行高收益列车';
+      else t.priorityReason = '综合评分较低';
     }
+
+    // Detect change
+    if (t.prevPriority > 0 && t.prevPriority !== t.priority) {
+      t.priorityChanged = true;
+      priorityChanges++;
+      const dir = t.priority < t.prevPriority ? '提升' : '下降';
+      addAlert(t.priority < t.prevPriority ? 'success' : 'warning',
+        `[调度变更] ${t.id} (${t.routeName}) P${t.prevPriority}→P${t.priority} ${dir}｜${t.priorityReason}`);
+    }
+    prevPriorities.set(t.id, t.priority);
   });
 
-  // 最终校验
-  validatePriority(trains);
+  // Sort final
+  trains.sort((a, b) => a.priority - b.priority || b.totalScore - a.totalScore);
 
-  // 按 priority ASC, speed DESC 排序
-  trains.sort((a, b) => a.priority - b.priority || b.speed - a.speed);
-  return trains;
-}
+  // Stats
+  const totalPassengers = trains.reduce((s, t) => s + t.passengers, 0);
+  const maxSpeed = Math.max(...trains.map(t => t.speed));
+  const avgSpeed = trains.reduce((s, t) => s + t.speed, 0) / trains.length;
+  const weatherWarnings = trains.filter(t => t.weather !== '晴').length;
+  const normalCount = trains.filter(t => t.status === 'normal').length;
+  const onTimeRate = Math.round((normalCount / trains.length) * 100);
+  const trackIssues = routes.filter(r => r.trackCondition !== 'normal').length;
 
-// ─────────────────── PriorityAdjuster ───────────────────
+  sysHistory.push({ tick: tickCount, avgSpeed: Number(avgSpeed.toFixed(0)), passengers: totalPassengers, priorityChanges });
+  if (sysHistory.length > 30) sysHistory.shift();
 
-/**
- * 高峰期优先级调整 — 对标 PriorityAdjuster.adjust_priority
- * 综合评分 = speed * 0.6 + passengers * 0.4
- * 对综合评分做qcut分箱
- */
-function adjustPriorityForPeak(trains: Train[]): Train[] {
-  trains.forEach(t => {
-    t.priorityScore = t.speed * 0.6 + t.passengers * 0.4;
-  });
-
-  const sorted = [...trains].sort((a, b) => b.priorityScore - a.priorityScore);
-  const n = sorted.length;
-
-  sorted.forEach((t, idx) => {
-    const ratio = idx / n;
-    if (ratio < 0.2)       t.priority = 1;
-    else if (ratio < 0.5)  t.priority = 2;
-    else if (ratio < 0.8)  t.priority = 3;
-    else                    t.priority = 4;
-  });
-
-  const map = new Map(sorted.map(t => [t.id, t.priority]));
-  trains.forEach(t => { t.priority = map.get(t.id) || t.priority; });
-
-  addAlert('info', '[高峰调度] 综合评分权重: 速度60% + 客流40%，已重新分箱确定优先级');
-
-  trains.sort((a, b) => a.priority - b.priority || b.speed - a.speed);
-  return trains;
-}
-
-// ─────────────────── Status Derivation ───────────────────
-
-function deriveStatus(t: Train): 'normal' | 'delayed' | 'warning' {
-  if (t.weather === '大雨' || t.weather === '雪') return 'warning';
-  if (t.priority === 1) return 'normal';
-  if (t.speed < 120) return 'delayed';
-  return 'normal';
-}
-
-// ─────────────────── Global State ───────────────────
-
-let alertIdSeq = 0;
-let alertBuffer: Alert[] = [];
-let forceWeather: WeatherType | null = null;
-let forcePeak: boolean | null = null;
-let tickCount = 0;
-let sysHistory: SystemHistory[] = [];
-
-function addAlert(level: Alert['level'], message: string) {
-  alertBuffer.push({
-    id: ++alertIdSeq,
-    time: nowTimeStr(),
-    message,
-    level,
-  });
-  // 只保留最近 20 条
-  if (alertBuffer.length > 20) {
-    alertBuffer = alertBuffer.slice(-20);
-  }
+  return {
+    routes: routes.map(r => ({ ...r })),
+    trains, isPeakHours: peak,
+    alerts: [...alertBuffer], history: [...sysHistory],
+    stats: { totalPassengers, maxSpeed, avgSpeed, weatherWarnings, onTimeRate, trackIssues, priorityChanges },
+    tickCount,
+  };
 }
 
 // ─────────────────── Public API ───────────────────
 
-export function tick(): SystemState {
-  tickCount++;
-
-  // 生成原始数据
-  const peak = forcePeak !== null ? forcePeak : isPeakHours();
-  let trains = generateTrainData(8, peak);
-
-  // 如果强制了天气，覆盖所有列车天气
-  if (forceWeather) {
-    const wc = WEATHER_CONDITIONS[forceWeather];
-    trains.forEach(t => {
-      t.weather = forceWeather!;
-      t.weatherIcon = wc.icon;
-      t.speed = Math.round(t.speed * wc.ratio / WEATHER_CONDITIONS[t.weather].ratio * wc.ratio);
-      // 重新计算速度
-      const baseSpeed = randomInt(150, 300);
-      t.speed = Math.round(baseSpeed * wc.ratio);
-    });
-  }
-
-  // 调度算法
-  trains = generateSchedule(trains);
-
-  // 高峰期调整
-  if (peak) {
-    trains = adjustPriorityForPeak(trains);
-  }
-
-  // 状态推导
-  trains.forEach(t => { t.status = deriveStatus(t); });
-
-  // 统计数据
-  const totalPassengers = trains.reduce((s, t) => s + t.passengers, 0);
-  const maxSpeed = Math.max(...trains.map(t => t.speed));
-  const avgSpeed = trains.reduce((s, t) => s + t.speed, 0) / trains.length;
-  const weatherWarnings = trains.filter(t => t.weather === '大雨' || t.weather === '雪').length;
-  const normalCount = trains.filter(t => t.status === 'normal').length;
-  const onTimeRate = Math.round((normalCount / trains.length) * 100);
-  
-  // 更新历史数据
-  const powerGridLoad = Number(randomFloat(65, 92).toFixed(1));
-  sysHistory.push({
-    tick: tickCount,
-    avgSpeed: Number(avgSpeed.toFixed(0)),
-    passengers: totalPassengers,
-    powerLoad: powerGridLoad
-  });
-  if (sysHistory.length > 30) {
-    sysHistory.shift();
-  }
-
-  const state: SystemState = {
-    trains,
-    isPeakHours: peak,
-    alerts: [...alertBuffer],
-    history: [...sysHistory],
-    stats: {
-      totalPassengers,
-      maxSpeed,
-      avgSpeed,
-      weatherWarnings,
-      onTimeRate,
-      powerGridLoad,
-    },
-    tickCount,
-  };
-
-  return state;
+export function setRouteWeather(routeId: string, weather: WeatherType) {
+  const r = routes.find(x => x.id === routeId);
+  if (!r) return;
+  const old = r.weather;
+  r.weather = weather;
+  addAlert('danger', `[气象预警] ${r.origin}→${r.destination} 天气: ${old}→${weather} ${WEATHER_CFG[weather].icon}  速度系数 ${WEATHER_CFG[weather].ratio}`);
 }
 
-export function setWeather(weather: WeatherType | null) {
-  forceWeather = weather;
-  if (weather) {
-    addAlert('danger', `[气象局警告] 全线天气强制切换为「${weather}」${WEATHER_CONDITIONS[weather].icon}，速度系数 ${WEATHER_CONDITIONS[weather].ratio}`);
-  } else {
-    addAlert('success', '[气象局] 天气恢复为随机自然状态');
-  }
+export function setRouteTrack(routeId: string, cond: TrackCondition) {
+  const r = routes.find(x => x.id === routeId);
+  if (!r) return;
+  r.trackCondition = cond;
+  if (cond === 'normal') addAlert('success', `[线路恢复] ${r.origin}→${r.destination} 已恢复正常通行`);
+  else addAlert('danger', `[线路警告] ${r.origin}→${r.destination} ${TRACK_CFG[cond].label}！通行系数 ${TRACK_CFG[cond].factor}`);
+}
+
+export function setTrainTransfer(trainId: string, on: boolean) {
+  const st = trainStates.get(trainId);
+  if (!st) return;
+  st.hasTransferTask = on;
+  addAlert(on ? 'warning' : 'info', `[路网衔接] ${trainId} ${on ? '标记紧急换乘接续任务' : '换乘任务解除'}`);
 }
 
 export function setPeakMode(peak: boolean | null) {
   forcePeak = peak;
-  if (peak === true) {
-    addAlert('warning', '[运行模式] 强制切换为高峰时段模式 — 综合评分机制启动');
-  } else if (peak === false) {
-    addAlert('info', '[运行模式] 强制切换为平峰时段模式');
-  } else {
-    addAlert('info', '[运行模式] 恢复自动检测高峰/平峰');
-  }
-}
-
-export function getWeatherList(): { key: WeatherType; icon: string; ratio: number }[] {
-  return WEATHER_KEYS.map(k => ({
-    key: k,
-    icon: WEATHER_CONDITIONS[k].icon,
-    ratio: WEATHER_CONDITIONS[k].ratio,
-  }));
+  if (peak === true) addAlert('warning', '[运行模式] 强制高峰 — 经济效益权重提升至27%');
+  else if (peak === false) addAlert('info', '[运行模式] 强制平峰');
+  else addAlert('info', '[运行模式] 恢复自动检测');
 }
