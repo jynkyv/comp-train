@@ -27,7 +27,7 @@ export interface Train {
   id: string;
   routeId: string;
   routeName: string;
-  trainType: 'G' | 'D' | 'K';
+  trainType: 'G' | 'D' | 'K' | 'C';
   designSpeed: number;
   speed: number;
   position: number;
@@ -110,27 +110,24 @@ const TRACK_CFG: Record<TrackCondition, { factor: number; score: number; label: 
 // ─────────────────── Route & Train Definitions ───────────────────
 
 const INITIAL_ROUTES: Route[] = [
-  { id: 'R1', origin: '齐齐哈尔', destination: '哈尔滨', distance: 359, weather: '晴', trackCondition: 'normal' },
-  { id: 'R2', origin: '鹤岗',     destination: '哈尔滨', distance: 410, weather: '晴', trackCondition: 'normal' },
-  { id: 'R3', origin: '佳木斯',   destination: '哈尔滨', distance: 510, weather: '晴', trackCondition: 'normal' },
-  { id: 'R4', origin: '牡丹江',   destination: '哈尔滨', distance: 380, weather: '晴', trackCondition: 'normal' },
-  { id: 'R5', origin: '大庆',     destination: '哈尔滨', distance: 150, weather: '晴', trackCondition: 'normal' },
+  { id: 'R1', origin: '牡丹江',   destination: '哈尔滨西', distance: 380, weather: '晴', trackCondition: 'normal' },
+  { id: 'R2', origin: '北京',     destination: '哈尔滨西', distance: 1240, weather: '晴', trackCondition: 'normal' },
+  { id: 'R3', origin: '长春',     destination: '哈尔滨西', distance: 240, weather: '晴', trackCondition: 'normal' },
+  { id: 'R4', origin: '齐齐哈尔', destination: '哈尔滨',   distance: 359, weather: '晴', trackCondition: 'normal' },
+  { id: 'R5', origin: '佳木斯',   destination: '哈尔滨',   distance: 510, weather: '晴', trackCondition: 'normal' },
 ];
 
 interface TrainDef {
-  id: string; routeId: string; type: 'G' | 'D' | 'K'; designSpeed: number; capacity: number;
+  id: string; routeId: string; type: 'G' | 'D' | 'K' | 'C'; designSpeed: number; capacity: number;
   initPositionRatio: number; initLoadRatio: number;
 }
 
 const TRAIN_DEFS: TrainDef[] = [
-  { id: 'G708',  routeId: 'R1', type: 'G', designSpeed: 300, capacity: 1200, initPositionRatio: 0.25, initLoadRatio: 0.88 },
-  { id: 'D6902', routeId: 'R1', type: 'D', designSpeed: 200, capacity: 800,  initPositionRatio: 0.55, initLoadRatio: 0.65 },
-  { id: 'K930',  routeId: 'R2', type: 'K', designSpeed: 120, capacity: 1500, initPositionRatio: 0.40, initLoadRatio: 0.48 },
-  { id: 'D6508', routeId: 'R3', type: 'D', designSpeed: 200, capacity: 800,  initPositionRatio: 0.30, initLoadRatio: 0.72 },
-  { id: 'D7816', routeId: 'R3', type: 'D', designSpeed: 200, capacity: 800,  initPositionRatio: 0.70, initLoadRatio: 0.55 },
-  { id: 'G714',  routeId: 'R4', type: 'G', designSpeed: 300, capacity: 1200, initPositionRatio: 0.20, initLoadRatio: 0.82 },
-  { id: 'D6502', routeId: 'R4', type: 'D', designSpeed: 200, capacity: 800,  initPositionRatio: 0.60, initLoadRatio: 0.42 },
-  { id: 'G2624', routeId: 'R5', type: 'G', designSpeed: 300, capacity: 1200, initPositionRatio: 0.35, initLoadRatio: 0.78 },
+  { id: 'D536',  routeId: 'R1', type: 'D', designSpeed: 200, capacity: 800,  initPositionRatio: 0.25, initLoadRatio: 0.20 }, // P3 target
+  { id: 'G101',  routeId: 'R2', type: 'G', designSpeed: 300, capacity: 1200, initPositionRatio: 0.50, initLoadRatio: 0.95 }, // P1 target
+  { id: 'D551',  routeId: 'R3', type: 'G', designSpeed: 250, capacity: 800,  initPositionRatio: 0.40, initLoadRatio: 0.65 }, // P2 target (user noted "g p2")
+  { id: 'D6916', routeId: 'R4', type: 'D', designSpeed: 200, capacity: 800,  initPositionRatio: 0.60, initLoadRatio: 0.65 }, // P2 target
+  { id: 'C102',  routeId: 'R5', type: 'C', designSpeed: 200, capacity: 600,  initPositionRatio: 0.30, initLoadRatio: 0.20 }, // P3 target
 ];
 
 // ─────────────────── Mutable State ───────────────────
@@ -153,7 +150,7 @@ TRAIN_DEFS.forEach(td => {
     position: r.distance * td.initPositionRatio,
     passengers: Math.round(td.capacity * td.initLoadRatio),
     delayMinutes: 0,
-    hasTransferTask: false,
+    hasTransferTask: td.id === 'D536', // 默认为 D536 加上紧急换乘任务
   });
 });
 
@@ -273,15 +270,26 @@ export function tick(): SystemState {
     };
   });
 
-  // ——— Assign Priority by totalScore ranking ———
+  // ——— Assign Priority by absolute totalScore thresholds ———
   const sorted = [...trains].sort((a, b) => b.totalScore - a.totalScore);
-  const n = sorted.length;
-  sorted.forEach((t, i) => {
-    const r = i / n;
-    t.priority = r < 0.2 ? 1 : r < 0.5 ? 2 : r < 0.75 ? 3 : 4;
+  
+  // Use absolute thresholds so the distribution pie chart dynamically changes
+  trains.forEach(t => {
+    if (t.totalScore >= 80) t.priority = 1;
+    else if (t.totalScore >= 65) t.priority = 2;
+    else t.priority = 3;
   });
-  const pMap = new Map(sorted.map(t => [t.id, t.priority]));
-  trains.forEach(t => { t.priority = pMap.get(t.id) || t.priority; });
+  
+  // Maintain mapping for previous priority checks
+  const pMap = new Map(trains.map(t => [t.id, t.priority]));
+  trains.forEach(t => { 
+    t.priority = pMap.get(t.id) || t.priority; 
+    
+    // P4 exclusive for severe downgrades
+    if (t.trackCondition === 'obstacle' || t.trackCondition === 'construction' || t.weatherScore < 40) {
+      t.priority = 4;
+    }
+  });
 
   // ——— Derive priority reason ———
   trains.forEach(t => {

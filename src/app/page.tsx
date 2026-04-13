@@ -124,15 +124,9 @@ export default function Dashboard() {
             <PH title="P1目标五维评分雷达" subtitle="多维因素综合分析" />
             <div className="flex-1 p-2"><FactorRadar trains={trains} /></div>
           </div>
-          <div className="flex-[50] bg-[#111827] flex gap-px overflow-hidden">
-            <div className="w-[45%] flex flex-col border-r border-[#1e293b] overflow-hidden">
-              <PH title="优先级分布" />
-              <div className="flex-1 p-2"><PriorityPie trains={trains} /></div>
-            </div>
-            <div className="w-[55%] flex flex-col overflow-hidden">
-              <PH title="动态趋势追踪" subtitle="近30周期" />
-              <div className="flex-1 p-2"><HistoryChart history={history} /></div>
-            </div>
+          <div className="flex-[50] bg-[#111827] flex flex-col overflow-hidden">
+            <PH title="实时优先级分布" subtitle="正常状态为P1-P3，异常干预降级进入P4" />
+            <div className="flex-1 p-2"><PriorityPie trains={trains} /></div>
           </div>
         </div>
       </div>
@@ -336,46 +330,28 @@ function PriorityPie({ trains }: { trains: Train[] }) {
   trains.forEach(t => { counts[t.priority] = (counts[t.priority] || 0) + 1; });
   const option = {
     backgroundColor: 'transparent',
-    series: [{ type: 'pie', radius: ['45%', '70%'], center: ['40%', '50%'], itemStyle: { borderColor: '#0a0d16', borderWidth: 2 }, label: { show: false },
+    series: [{ type: 'pie', radius: ['50%', '75%'], center: ['50%', '50%'], itemStyle: { borderColor: '#0a0d16', borderWidth: 2 }, label: { show: false },
       data: [
         { value: counts[1], name: 'P1', itemStyle: { color: P_COLORS[1] } },
         { value: counts[2], name: 'P2', itemStyle: { color: P_COLORS[2] } },
         { value: counts[3], name: 'P3', itemStyle: { color: P_COLORS[3] } },
         { value: counts[4], name: 'P4', itemStyle: { color: P_COLORS[4] } },
       ].filter(d => d.value > 0) }],
-    animation: false,
+    animation: true,
+    animationDuration: 800,
+    animationEasing: 'cubicOut'
   };
   return (
-    <div className="flex h-full">
-      <div className="w-3/5 h-full"><ReactECharts option={option} style={{ height: '100%', width: '100%' }} /></div>
-      <div className="w-2/5 flex flex-col justify-center gap-2">
+    <div className="flex h-full items-center justify-center">
+      <div className="w-1/2 h-full"><ReactECharts option={option} style={{ height: '100%', width: '100%' }} /></div>
+      <div className="w-1/2 flex flex-col justify-center gap-3 px-6">
         {[1, 2, 3, 4].map(p => (
-          <div key={p} className="flex justify-between text-xs items-center">
-            <span className="flex items-center gap-1.5 text-white"><span className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: P_COLORS[p] }} /> P{p}</span>
-            <span className="font-bold text-white tabular-nums">{counts[p]}</span>
+          <div key={p} className={`flex justify-between text-sm items-center ${counts[p] === 0 ? 'opacity-40' : ''}`}>
+            <span className="flex items-center gap-2 text-slate-200"><span className="w-3 h-3 rounded-sm" style={{ backgroundColor: P_COLORS[p] }} /> P{p} {p === 4 && '(异常降级)'}</span>
+            <span className="font-bold text-white tabular-nums text-base">{counts[p]}</span>
           </div>
         ))}
       </div>
     </div>
   );
-}
-
-function HistoryChart({ history }: { history: SystemHistory[] }) {
-  if (!history || history.length === 0) return null;
-  const option = {
-    backgroundColor: 'transparent',
-    tooltip: { trigger: 'axis', backgroundColor: '#0f1422', borderColor: '#1e293b', textStyle: { color: '#e2e8f0', fontSize: 11 } },
-    grid: { left: 35, right: 35, top: 20, bottom: 20 },
-    xAxis: { type: 'category', data: history.map(h => h.tick), axisLabel: { show: false }, axisTick: { show: false }, axisLine: { lineStyle: { color: '#334155' } } },
-    yAxis: [
-      { type: 'value', min: 'dataMin', splitLine: { lineStyle: { color: '#1e293b' } }, axisLabel: { color: '#3b82f6', fontSize: 10 } },
-      { type: 'value', min: 0, splitLine: { show: false }, axisLabel: { color: '#ef4444', fontSize: 10 } },
-    ],
-    series: [
-      { name: '均速', type: 'line', data: history.map(h => h.avgSpeed), lineStyle: { color: '#3b82f6', width: 2 }, symbol: 'none', yAxisIndex: 0 },
-      { name: '优先级变更', type: 'bar', data: history.map(h => h.priorityChanges), itemStyle: { color: '#ef4444' }, barWidth: 4, yAxisIndex: 1 },
-    ],
-    animation: false,
-  };
-  return <ReactECharts option={option} style={{ height: '100%', width: '100%' }} />;
 }
