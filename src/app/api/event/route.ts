@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { setRouteWeather, setRouteTrack, setTrainTransfer, setPeakMode } from '@/lib/mockState';
+import { setRouteWeather, setRouteTrack, setTrainTransfer, setPeakMode, resetAll } from '@/lib/mockState';
 import type { WeatherType, TrackCondition } from '@/lib/mockState';
 
 export const dynamic = 'force-dynamic';
@@ -16,6 +16,8 @@ export async function POST(request: Request) {
       setTrainTransfer(body.trainId as string, body.hasTransfer as boolean);
     } else if (body.type === 'peak') {
       setPeakMode(body.value as boolean | null);
+    } else if (body.type === 'reset') {
+      resetAll();
     }
 
     return NextResponse.json({ success: true });

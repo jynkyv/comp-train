@@ -375,7 +375,26 @@ export function setTrainTransfer(trainId: string, on: boolean) {
 
 export function setPeakMode(peak: boolean | null) {
   forcePeak = peak;
-  if (peak === true) addAlert('warning', '[运行模式] 强制高峰 — 经济效益权重提升至27%');
+  if (peak === true) addAlert('warning', '[运行模式] 强制高峰 — 经济效益权重提升至45%');
   else if (peak === false) addAlert('info', '[运行模式] 强制平峰');
   else addAlert('info', '[运行模式] 恢复自动检测');
+}
+
+export function resetAll() {
+  let changed = false;
+  routes.forEach(r => {
+    if (r.weather !== '晴' || r.trackCondition !== 'normal') changed = true;
+    r.weather = '晴';
+    r.trackCondition = 'normal';
+  });
+  trainStates.forEach(st => {
+    if (st.hasTransferTask) changed = true;
+    st.hasTransferTask = false;
+  });
+  if (forcePeak !== null) changed = true;
+  forcePeak = null;
+  
+  if (changed) {
+    addAlert('success', '[系统恢复] 收到一键复原指令，全网恢复自动检测及常态路况标定');
+  }
 }

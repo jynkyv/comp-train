@@ -62,6 +62,10 @@ export default function Dashboard() {
           <span className="text-emerald-500 text-xs font-bold ring-1 ring-emerald-500/50 px-2 py-0.5 rounded-sm bg-emerald-950/30">周期 {state.tickCount.toString().padStart(6, '0')}</span>
         </div>
         <div className="flex items-center gap-4">
+          <button onClick={() => { setActivePeak(null); postEvent({ type: 'reset' }); }} className="px-3 py-1.5 rounded-sm text-xs font-bold bg-[#1e293b] text-slate-300 border border-[#334155] hover:bg-emerald-900/70 hover:text-emerald-400 hover:border-emerald-600 transition-all shadow-sm flex items-center gap-1.5">
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+            一键复原
+          </button>
           <div className="flex border border-slate-700/50 rounded-sm overflow-hidden bg-slate-900/50">
             {([{ val: null, label: '自适应' }, { val: true, label: '强制高峰' }, { val: false, label: '强制平峰' }] as { val: boolean | null; label: string }[]).map(item => (
               <button key={String(item.val)} onClick={() => triggerPeak(item.val)}
