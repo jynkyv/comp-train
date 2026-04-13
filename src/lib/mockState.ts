@@ -150,7 +150,7 @@ TRAIN_DEFS.forEach(td => {
     position: r.distance * td.initPositionRatio,
     passengers: Math.round(td.capacity * td.initLoadRatio),
     delayMinutes: 0,
-    hasTransferTask: td.id === 'D536', // 默认为 D536 加上紧急换乘任务
+    hasTransferTask: false,
   });
 });
 
@@ -274,9 +274,11 @@ export function tick(): SystemState {
   const sorted = [...trains].sort((a, b) => b.totalScore - a.totalScore);
   
   // Use absolute thresholds so the distribution pie chart dynamically changes
+  // In a perfect weather/track scenario, the base score is 65.
+  // We fine-tune thresholds so high revenue pushes to P1, mid pushes to P2, low stays P3.
   trains.forEach(t => {
-    if (t.totalScore >= 80) t.priority = 1;
-    else if (t.totalScore >= 65) t.priority = 2;
+    if (t.totalScore >= 88) t.priority = 1;
+    else if (t.totalScore >= 80) t.priority = 2;
     else t.priority = 3;
   });
   

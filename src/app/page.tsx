@@ -90,13 +90,13 @@ export default function Dashboard() {
       <div className="flex-1 flex gap-px bg-[#1e293b] overflow-hidden">
         {/* Left: Table + Controls */}
         <div className="w-[60%] flex flex-col gap-px bg-[#1e293b] overflow-hidden">
-          <div className="flex-[60] bg-[#111827] flex flex-col overflow-hidden">
+          <div className="flex-[40] bg-[#111827] flex flex-col overflow-hidden">
             <PH title="全网列车五维调度矩阵" subtitle="按综合评分降序排列 · 五维因素: 气象/线路/准点/衔接/效益" />
             <div className="flex-1 overflow-auto bg-[#1f2937]">
               <TrainTable trains={trains} isPeak={isPeakHours} onToggleTransfer={(id, on) => postEvent({ type: 'trainTransfer', trainId: id, hasTransfer: on })} />
             </div>
           </div>
-          <div className="flex-[40] flex gap-px bg-[#1e293b] overflow-hidden">
+          <div className="flex-[60] flex gap-px bg-[#1e293b] overflow-hidden">
             <div className="w-[45%] bg-[#111827] flex flex-col overflow-hidden">
               <PH title="路线环境干预控制台" subtitle="按路线独立控制气象与线路状况" />
               <div className="flex-1 overflow-auto p-2">
