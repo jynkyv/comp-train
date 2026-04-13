@@ -103,8 +103,8 @@ const WEATHER_CFG: Record<WeatherType, { ratio: number; icon: string; score: num
 
 const TRACK_CFG: Record<TrackCondition, { factor: number; score: number; label: string }> = {
   normal:       { factor: 1.0, score: 100, label: '畅通' },
-  construction: { factor: 0.4, score: 35,  label: '施工限速' },
-  obstacle:     { factor: 0.1, score: 10,  label: '异物侵限' },
+  construction: { factor: 0.0, score: 35,  label: '施工停运' },
+  obstacle:     { factor: 0.0, score: 10,  label: '异物停运' },
 };
 
 // ─────────────────── Route & Train Definitions ───────────────────
@@ -215,8 +215,8 @@ export function tick(): SystemState {
 
     // Status
     let status: Train['status'] = 'normal';
-    if (route.trackCondition === 'obstacle') status = 'stopped';
-    else if (route.trackCondition === 'construction' || route.weather === '大雨' || route.weather === '大风' || route.weather === '雪') status = 'warning';
+    if (route.trackCondition === 'obstacle' || route.trackCondition === 'construction') status = 'stopped';
+    else if (route.weather === '大雨' || route.weather === '大风' || route.weather === '雪') status = 'warning';
     else if (st.delayMinutes > 5) status = 'delayed';
 
     const affectsFollowing = st.delayMinutes > 10;
