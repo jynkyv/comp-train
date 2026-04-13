@@ -208,9 +208,11 @@ export function tick(): SystemState {
       st.delayMinutes = Math.max(0, st.delayMinutes - 1);
     }
 
-    // Passenger fluctuation
-    if (peak && Math.random() < 0.3) st.passengers = Math.min(td.capacity, st.passengers + Math.round(Math.random() * 40));
-    if (!peak && Math.random() < 0.2) st.passengers = Math.max(50, st.passengers - Math.round(Math.random() * 30));
+    // Passenger fluctuation (allow both up and down, preventing monotonic draining)
+    const flow = peak ? rf(-15, 45) : rf(-30, 30);
+    if (Math.random() < 0.4) {
+      st.passengers = Math.max(50, Math.min(td.capacity, st.passengers + Math.round(flow)));
+    }
     const loadRate = Math.round((st.passengers / td.capacity) * 100);
 
     // Status
@@ -244,9 +246,13 @@ export function tick(): SystemState {
 
     // Weighted total (peak → revenue weight rises)
     const W = peak
-      ? { w: 0.18, t: 0.22, p: 0.18, c: 0.15, r: 0.27 }
-      : { w: 0.20, t: 0.25, p: 0.20, c: 0.15, r: 0.20 };
-    const totalScore = Number((weatherScore * W.w + trackScore * W.t + punctualityScore * W.p + connectivityScore * W.c + revenueScore * W.r).toFixed(1));
+      ? { w: 0.10, t: 0.10, p: 0.20, c: 0.15, r: 0.45 }
+      : { w: 0.15, t: 0.15, p: 0.20, c: 0.15, r: 0.35 };
+
+    // Add real-time dynamic noise to simulate minor operational fluctuations
+    const dynamicNoise = Number(rf(-3.5, 3.5).toFixed(1));
+    const rawScore = weatherScore * W.w + trackScore * W.t + punctualityScore * W.p + connectivityScore * W.c + revenueScore * W.r + dynamicNoise;
+    const totalScore = Number(Math.max(0, Math.min(100, rawScore)).toFixed(1));
 
     const friction = route.weather === '雪' ? rf(0.55, 0.65) : route.weather === '大雨' ? rf(0.65, 0.75) : route.weather === '雾' ? rf(0.75, 0.82) : rf(0.85, 0.95);
 
@@ -273,12 +279,10 @@ export function tick(): SystemState {
   // ——— Assign Priority by absolute totalScore thresholds ———
   const sorted = [...trains].sort((a, b) => b.totalScore - a.totalScore);
   
-  // Use absolute thresholds so the distribution pie chart dynamically changes
-  // In a perfect weather/track scenario, the base score is 65.
-  // We fine-tune thresholds so high revenue pushes to P1, mid pushes to P2, low stays P3.
+  // Use absolute thresholds (P1>=80, P2>=65) so the distribution dynamically changes
   trains.forEach(t => {
-    if (t.totalScore >= 88) t.priority = 1;
-    else if (t.totalScore >= 80) t.priority = 2;
+    if (t.totalScore >= 80) t.priority = 1;
+    else if (t.totalScore >= 65) t.priority = 2;
     else t.priority = 3;
   });
   
