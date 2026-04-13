@@ -35,7 +35,7 @@ export default function Dashboard() {
     try { const r = await fetch('/api/data'); setState(await r.json()); } catch (e) { console.error(e); }
   }, []);
 
-  useEffect(() => { fetchData(); const iv = setInterval(fetchData, 3000); return () => clearInterval(iv); }, [fetchData]);
+  useEffect(() => { fetchData(); const iv = setInterval(fetchData, 8000); return () => clearInterval(iv); }, [fetchData]);
 
   const postEvent = useCallback(async (body: Record<string, unknown>) => {
     await fetch('/api/event', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -45,27 +45,27 @@ export default function Dashboard() {
   const triggerPeak = useCallback((v: boolean | null) => { setActivePeak(v); postEvent({ type: 'peak', value: v }); }, [postEvent]);
 
   if (!state) return (
-    <div className="flex h-screen items-center justify-center bg-[#05080f]">
-      <p className="text-sm text-slate-500 tracking-widest">系统安全加密连接中...</p>
+    <div className="flex h-screen items-center justify-center bg-[#0b1121]">
+      <p className="text-sm text-slate-100 tracking-widest">系统安全加密连接中...</p>
     </div>
   );
 
   const { trains, routes, alerts, isPeakHours, history } = state;
 
   return (
-    <div className="h-screen bg-[#05080f] text-slate-300 flex flex-col overflow-hidden leading-tight" style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>
+    <div className="h-screen bg-[#0b1121] text-slate-100 flex flex-col overflow-hidden leading-tight" style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>
       {/* ── Header ── */}
-      <header className="h-12 flex-shrink-0 flex items-center justify-between px-4 bg-[#0a0d16] border-b border-[#1e293b]">
+      <header className="h-12 flex-shrink-0 flex items-center justify-between px-4 bg-[#111827] border-b border-[#1e293b]">
         <div className="flex items-center gap-6">
-          <span className="text-slate-200 text-base font-bold tracking-widest">铁路多维调度决策系统 (MFDS)</span>
-          <span className="text-slate-600 text-xs">V4.0</span>
+          <span className="text-white text-base font-bold tracking-widest">铁路多维调度决策系统 (MFDS)</span>
+          <span className="text-white text-xs">V4.0</span>
           <span className="text-emerald-500 text-xs font-bold ring-1 ring-emerald-500/50 px-2 py-0.5 rounded-sm bg-emerald-950/30">周期 {state.tickCount.toString().padStart(6, '0')}</span>
         </div>
         <div className="flex items-center gap-4">
           <div className="flex border border-slate-700/50 rounded-sm overflow-hidden bg-slate-900/50">
             {([{ val: null, label: '自适应' }, { val: true, label: '强制高峰' }, { val: false, label: '强制平峰' }] as { val: boolean | null; label: string }[]).map(item => (
               <button key={String(item.val)} onClick={() => triggerPeak(item.val)}
-                className={`px-3 py-1.5 text-xs font-bold border-r border-slate-700/50 last:border-0 transition-colors ${activePeak === item.val ? 'bg-blue-900 text-blue-100' : 'text-slate-400 hover:bg-slate-800'}`}
+                className={`px-3 py-1.5 text-xs font-bold border-r border-slate-700/50 last:border-0 transition-colors ${activePeak === item.val ? 'bg-blue-900 text-blue-100' : 'text-white hover:bg-slate-800'}`}
               >{item.label}</button>
             ))}
           </div>
@@ -90,25 +90,25 @@ export default function Dashboard() {
       <div className="flex-1 flex gap-px bg-[#1e293b] overflow-hidden">
         {/* Left: Table + Controls */}
         <div className="w-[60%] flex flex-col gap-px bg-[#1e293b] overflow-hidden">
-          <div className="flex-[60] bg-[#0a0d16] flex flex-col overflow-hidden">
+          <div className="flex-[60] bg-[#111827] flex flex-col overflow-hidden">
             <PH title="全网列车五维调度矩阵" subtitle="按综合评分降序排列 · 五维因素: 气象/线路/准点/衔接/效益" />
-            <div className="flex-1 overflow-auto bg-[#070a11]">
+            <div className="flex-1 overflow-auto bg-[#1f2937]">
               <TrainTable trains={trains} isPeak={isPeakHours} onToggleTransfer={(id, on) => postEvent({ type: 'trainTransfer', trainId: id, hasTransfer: on })} />
             </div>
           </div>
           <div className="flex-[40] flex gap-px bg-[#1e293b] overflow-hidden">
-            <div className="w-[45%] bg-[#0a0d16] flex flex-col overflow-hidden">
+            <div className="w-[45%] bg-[#111827] flex flex-col overflow-hidden">
               <PH title="路线环境干预控制台" subtitle="按路线独立控制气象与线路状况" />
               <div className="flex-1 overflow-auto p-2">
                 <RouteControlPanel routes={routes} trains={trains} onWeather={(rid, w) => postEvent({ type: 'routeWeather', routeId: rid, weather: w })} onTrack={(rid, c) => postEvent({ type: 'routeTrack', routeId: rid, condition: c })} />
               </div>
             </div>
-            <div className="flex-1 bg-[#0a0d16] flex flex-col overflow-hidden">
+            <div className="flex-1 bg-[#111827] flex flex-col overflow-hidden">
               <PH title="系统日志与调度变更追踪" subtitle="SYSTEM.LOG" />
-              <div className="flex-1 overflow-y-auto p-3 bg-[#05070a]">
-                {alerts.length === 0 ? <p className="text-slate-600 text-xs">暂无告警</p> :
+              <div className="flex-1 overflow-y-auto p-3 bg-[#0f172a]">
+                {alerts.length === 0 ? <p className="text-white text-xs">暂无告警</p> :
                   [...alerts].reverse().map(a => (
-                    <div key={a.id} className={`flex gap-3 text-xs py-1 px-2 border-l-[3px] mb-1 ${a.level === 'danger' ? 'border-red-500 text-red-400 bg-red-950/20' : a.level === 'warning' ? 'border-yellow-500 text-yellow-500 bg-yellow-950/10' : a.level === 'success' ? 'border-emerald-500 text-emerald-400 bg-emerald-950/10' : 'border-slate-600 text-slate-400 bg-slate-900/40'}`}>
+                    <div key={a.id} className={`flex gap-3 text-xs py-1 px-2 border-l-[3px] mb-1 ${a.level === 'danger' ? 'border-red-500 text-red-400 bg-red-950/20' : a.level === 'warning' ? 'border-yellow-500 text-yellow-500 bg-yellow-950/10' : a.level === 'success' ? 'border-emerald-500 text-emerald-400 bg-emerald-950/10' : 'border-slate-600 text-white bg-slate-900/40'}`}>
                       <span className="opacity-60 whitespace-nowrap shrink-0">{a.time}</span>
                       <span>{a.message}</span>
                     </div>
@@ -120,15 +120,11 @@ export default function Dashboard() {
 
         {/* Right: Charts & Analysis */}
         <div className="w-[40%] flex flex-col gap-px bg-[#1e293b] overflow-hidden">
-          <div className="flex-[33] bg-[#0a0d16] flex flex-col overflow-hidden">
-            <PH title="多路线空间态势感知" subtitle="X:里程坐标 Y:即时车速" />
-            <div className="flex-1 p-2"><TrackMapChart trains={trains} /></div>
-          </div>
-          <div className="flex-[34] bg-[#0a0d16] flex flex-col overflow-hidden">
+          <div className="flex-[50] bg-[#111827] flex flex-col overflow-hidden">
             <PH title="P1目标五维评分雷达" subtitle="多维因素综合分析" />
             <div className="flex-1 p-2"><FactorRadar trains={trains} /></div>
           </div>
-          <div className="flex-[33] bg-[#0a0d16] flex gap-px overflow-hidden">
+          <div className="flex-[50] bg-[#111827] flex gap-px overflow-hidden">
             <div className="w-[45%] flex flex-col border-r border-[#1e293b] overflow-hidden">
               <PH title="优先级分布" />
               <div className="flex-1 p-2"><PriorityPie trains={trains} /></div>
@@ -148,20 +144,20 @@ export default function Dashboard() {
 
 function PH({ title, subtitle }: { title: string; subtitle?: string }) {
   return (
-    <div className="h-8 flex-shrink-0 flex items-center justify-between px-3 bg-[#0f1422] border-b border-[#1e293b]">
-      <span className="text-sm text-slate-300 font-bold tracking-widest">{title}</span>
-      {subtitle && <span className="text-[10px] text-slate-500 tracking-wider">{subtitle}</span>}
+    <div className="h-8 flex-shrink-0 flex items-center justify-between px-3 bg-[#1f2937] border-b border-[#1e293b]">
+      <span className="text-sm text-slate-100 font-bold tracking-widest">{title}</span>
+      {subtitle && <span className="text-[10px] text-slate-100 tracking-wider">{subtitle}</span>}
     </div>
   );
 }
 
 function SI({ label, value, unit, warn }: { label: string; value: string; unit: string; warn?: boolean }) {
   return (
-    <div className="flex flex-col justify-center px-4 bg-[#0a0d16]">
-      <span className="text-[10px] text-slate-500 tracking-wider mb-0.5">{label}</span>
+    <div className="flex flex-col justify-center px-4 bg-[#111827]">
+      <span className="text-[10px] text-slate-100 tracking-wider mb-0.5">{label}</span>
       <div className="flex items-baseline gap-1">
         <span className={`text-lg font-bold tabular-nums tracking-wider ${warn ? 'text-red-500' : 'text-slate-100'}`}>{value}</span>
-        <span className="text-[10px] text-slate-600 font-bold">{unit}</span>
+        <span className="text-[10px] text-white font-bold">{unit}</span>
       </div>
     </div>
   );
@@ -180,7 +176,7 @@ function FactorBars({ train }: { train: Train }) {
             <div className="w-6 h-1.5 bg-[#1e293b] rounded-full overflow-hidden">
               <div className="h-full rounded-full factor-bar" style={{ width: `${v}%`, backgroundColor: bg }} />
             </div>
-            <span className="text-[8px] text-slate-600">{f.label}</span>
+            <span className="text-[8px] text-white">{f.label}</span>
           </div>
         );
       })}
@@ -200,26 +196,26 @@ function RouteControlPanel({ routes, trains, onWeather, onTrack }: {
       {routes.map(r => {
         const rTrains = trains.filter(t => t.routeId === r.id);
         return (
-          <div key={r.id} className="border border-[#1e293b] rounded-sm p-2 bg-[#070a11]">
+          <div key={r.id} className="border border-[#1e293b] rounded-sm p-2 bg-[#1f2937]">
             <div className="flex items-center justify-between mb-1.5">
-              <span className="text-xs font-bold text-slate-200 tracking-wider">{r.origin}→{r.destination}</span>
-              <span className="text-[10px] text-slate-500">{r.distance}km · {rTrains.map(t => t.id).join(' ')}</span>
+              <span className="text-xs font-bold text-white tracking-wider">{r.origin}→{r.destination}</span>
+              <span className="text-[10px] text-slate-100">{r.distance}km · {rTrains.map(t => t.id).join(' ')}</span>
             </div>
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-1">
-                <span className="text-[10px] text-slate-500 mr-1">气象</span>
+                <span className="text-[10px] text-slate-100 mr-1">气象</span>
                 {WEATHER_OPTS.map(w => (
                   <button key={w.key} onClick={() => onWeather(r.id, w.key)}
-                    className={`w-7 h-6 text-xs rounded-sm border transition-all ${r.weather === w.key ? 'border-blue-500 bg-blue-900/50 route-btn-active' : 'border-[#1e293b] bg-[#0a0d16] hover:bg-slate-800'}`}
+                    className={`w-7 h-6 text-xs rounded-sm border transition-all ${r.weather === w.key ? 'border-blue-500 bg-blue-900/50 route-btn-active' : 'border-[#1e293b] bg-[#111827] hover:bg-slate-800'}`}
                     title={w.label}>{w.icon}</button>
                 ))}
               </div>
               <div className="w-px h-5 bg-[#1e293b]" />
               <div className="flex items-center gap-1">
-                <span className="text-[10px] text-slate-500 mr-1">线路</span>
+                <span className="text-[10px] text-slate-100 mr-1">线路</span>
                 {TRACK_OPTS.map(t => (
                   <button key={t.key} onClick={() => onTrack(r.id, t.key)}
-                    className={`px-1.5 h-6 text-[10px] rounded-sm border transition-all font-bold ${r.trackCondition === t.key ? 'border-blue-500 bg-blue-900/50 route-btn-active' : 'border-[#1e293b] bg-[#0a0d16] hover:bg-slate-800'}`}
+                    className={`px-1.5 h-6 text-[10px] rounded-sm border transition-all font-bold ${r.trackCondition === t.key ? 'border-blue-500 bg-blue-900/50 route-btn-active' : 'border-[#1e293b] bg-[#111827] hover:bg-slate-800'}`}
                     style={{ color: r.trackCondition === t.key ? t.color : '#64748b' }}
                   >{t.label}</button>
                 ))}
@@ -238,7 +234,7 @@ function TrainTable({ trains, isPeak, onToggleTransfer }: { trains: Train[]; isP
   return (
     <table className="w-full text-xs text-right whitespace-nowrap">
       <thead>
-        <tr className="text-slate-400 bg-[#0a0d16] sticky top-0 uppercase tracking-widest">
+        <tr className="text-white bg-[#111827] sticky top-0 uppercase tracking-widest">
           <th className="py-2 px-2 text-left font-bold border-b border-[#1e293b]">车次</th>
           <th className="py-2 px-2 text-left font-bold border-b border-[#1e293b]">路线</th>
           <th className="py-2 px-2 text-center font-bold border-b border-[#1e293b]">优先级</th>
@@ -260,11 +256,11 @@ function TrainTable({ trains, isPeak, onToggleTransfer }: { trains: Train[]; isP
           return (
             <tr key={t.id} className={`border-b border-[#1e293b]/70 hover:bg-[#1e293b] transition-colors ${chgClass}`}>
               <td className="py-2 px-2 text-left">
-                <span className="font-bold text-slate-200 text-sm tracking-wider">{t.id}</span>
-                <span className="text-[10px] text-slate-600 ml-1">{t.trainType}</span>
+                <span className="font-bold text-white text-sm tracking-wider">{t.id}</span>
+                <span className="text-[10px] text-white ml-1">{t.trainType}</span>
               </td>
               <td className="py-2 px-2 text-left">
-                <span className="text-slate-400 text-[11px]">{t.weatherIcon} {t.routeName}</span>
+                <span className="text-white text-[11px]">{t.weatherIcon} {t.routeName}</span>
               </td>
               <td className="py-2 px-2 text-center">
                 <span className="font-bold px-2 py-0.5 rounded-sm inline-flex items-center gap-1" style={{ backgroundColor: P_COLORS[t.priority] + '30', color: P_COLORS[t.priority] }}>
@@ -281,19 +277,19 @@ function TrainTable({ trains, isPeak, onToggleTransfer }: { trains: Train[]; isP
               </td>
               <td className="py-2 px-2 text-blue-200 font-bold tabular-nums">{t.speed}</td>
               <td className="py-2 px-2 tabular-nums">
-                <span className={`font-bold ${t.loadRate >= 80 ? 'text-emerald-400' : t.loadRate >= 40 ? 'text-slate-300' : 'text-red-400'}`}>{t.loadRate}%</span>
+                <span className={`font-bold ${t.loadRate >= 80 ? 'text-emerald-400' : t.loadRate >= 40 ? 'text-slate-100' : 'text-red-400'}`}>{t.loadRate}%</span>
               </td>
               <td className="py-2 px-2 text-center">
                 <button onClick={() => onToggleTransfer(t.id, !t.hasTransferTask)}
-                  className={`text-[10px] px-1.5 py-0.5 rounded-sm border transition-colors ${t.hasTransferTask ? 'border-orange-500 bg-orange-900/30 text-orange-400 font-bold' : 'border-[#1e293b] text-slate-600 hover:bg-slate-800'}`}
+                  className={`text-[10px] px-1.5 py-0.5 rounded-sm border transition-colors ${t.hasTransferTask ? 'border-orange-500 bg-orange-900/30 text-orange-400 font-bold' : 'border-[#1e293b] text-white hover:bg-slate-800'}`}
                 >{t.hasTransferTask ? '🔄紧急' : '无'}</button>
               </td>
-              <td className={`py-2 px-2 tabular-nums font-bold ${t.delayMinutes > 10 ? 'text-red-500' : t.delayMinutes > 0 ? 'text-yellow-500' : 'text-slate-500'}`}>
+              <td className={`py-2 px-2 tabular-nums font-bold ${t.delayMinutes > 10 ? 'text-red-500' : t.delayMinutes > 0 ? 'text-yellow-500' : 'text-slate-100'}`}>
                 {t.delayMinutes > 0 ? `+${t.delayMinutes}分` : '正点'}
               </td>
               <td className="py-2 px-2"><FactorBars train={t} /></td>
-              <td className="py-2 px-2 font-bold tabular-nums text-slate-200">{t.totalScore.toFixed(1)}</td>
-              <td className="py-2 px-2 text-left text-[10px] text-slate-400 max-w-[140px] truncate" title={t.priorityReason}>{t.priorityReason}</td>
+              <td className="py-2 px-2 font-bold tabular-nums text-white">{t.totalScore.toFixed(1)}</td>
+              <td className="py-2 px-2 text-left text-[10px] text-white max-w-[140px] truncate" title={t.priorityReason}>{t.priorityReason}</td>
             </tr>
           );
         })}
@@ -303,24 +299,6 @@ function TrainTable({ trains, isPeak, onToggleTransfer }: { trains: Train[]; isP
 }
 
 // ──────── Charts ────────
-
-function TrackMapChart({ trains }: { trains: Train[] }) {
-  const routeColors: Record<string, string> = { R1: '#38bdf8', R2: '#a78bfa', R3: '#fbbf24', R4: '#34d399', R5: '#f87171' };
-  const option = {
-    backgroundColor: 'transparent',
-    tooltip: { trigger: 'item', backgroundColor: '#0f1422', borderColor: '#1e293b', textStyle: { color: '#e2e8f0', fontSize: 11, fontFamily: 'monospace' },
-      formatter: (p: any) => `${p.name}<br/>位置: ${p.value[0].toFixed(0)}km<br/>车速: ${p.value[1]}km/h` },
-    grid: { left: 45, right: 25, top: 25, bottom: 25 },
-    xAxis: { type: 'value', min: 0, max: 550, axisLabel: { color: '#64748b', fontSize: 10 }, splitLine: { lineStyle: { color: '#1e293b', type: 'dotted' } }, name: '里程(km)', nameTextStyle: { color: '#475569', fontSize: 10 } },
-    yAxis: { type: 'value', min: 0, max: 350, axisLabel: { color: '#64748b', fontSize: 10 }, splitLine: { lineStyle: { color: '#1e293b' } }, name: '车速', nameTextStyle: { color: '#475569', fontSize: 10 } },
-    series: [{ type: 'scatter', symbolSize: (v: any, p: any) => { const t = trains.find(x => x.id === p.name); return t && t.priority === 1 ? 18 : 11; },
-      itemStyle: { color: (p: any) => { const t = trains.find(x => x.id === p.name); return t ? routeColors[t.routeId] || '#64748b' : '#64748b'; }, opacity: 0.9, borderColor: '#fff', borderWidth: 0.5 },
-      label: { show: true, formatter: '{b}', position: 'top', color: '#cbd5e1', fontSize: 10, fontWeight: 'bold' },
-      data: trains.map(t => ({ name: t.id, value: [t.position, t.speed] })) }],
-    animationDurationUpdate: 500
-  };
-  return <ReactECharts option={option} style={{ height: '100%', width: '100%' }} />;
-}
 
 function FactorRadar({ trains }: { trains: Train[] }) {
   const top = trains[0];
@@ -344,10 +322,10 @@ function FactorRadar({ trains }: { trains: Train[] }) {
         <div className="text-[10px] text-emerald-500 font-bold mb-1">🟢 P1 {top.id}</div>
         {FACTOR_META.map(f => {
           const v = top[f.key as keyof Train] as number;
-          return <div key={f.key} className="text-[10px] text-slate-400">{f.icon} {f.label}: <span className={`font-bold ${v >= 70 ? 'text-emerald-400' : v >= 40 ? 'text-yellow-400' : 'text-red-400'}`}>{v}</span></div>;
+          return <div key={f.key} className="text-[10px] text-white">{f.icon} {f.label}: <span className={`font-bold ${v >= 70 ? 'text-emerald-400' : v >= 40 ? 'text-yellow-400' : 'text-red-400'}`}>{v}</span></div>;
         })}
-        <div className="text-[10px] text-slate-300 font-bold border-t border-[#1e293b] pt-1 mt-1">综合评分: {top.totalScore.toFixed(1)}</div>
-        <div className="text-[10px] text-slate-500 italic">{top.priorityReason}</div>
+        <div className="text-[10px] text-slate-100 font-bold border-t border-[#1e293b] pt-1 mt-1">综合评分: {top.totalScore.toFixed(1)}</div>
+        <div className="text-[10px] text-slate-100 italic">{top.priorityReason}</div>
       </div>
     </div>
   );
@@ -373,8 +351,8 @@ function PriorityPie({ trains }: { trains: Train[] }) {
       <div className="w-2/5 flex flex-col justify-center gap-2">
         {[1, 2, 3, 4].map(p => (
           <div key={p} className="flex justify-between text-xs items-center">
-            <span className="flex items-center gap-1.5 text-slate-400"><span className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: P_COLORS[p] }} /> P{p}</span>
-            <span className="font-bold text-slate-200 tabular-nums">{counts[p]}</span>
+            <span className="flex items-center gap-1.5 text-white"><span className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: P_COLORS[p] }} /> P{p}</span>
+            <span className="font-bold text-white tabular-nums">{counts[p]}</span>
           </div>
         ))}
       </div>
