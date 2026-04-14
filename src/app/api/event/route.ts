@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { setRouteWeather, setRouteTrack, setTrainTransfer, setPeakMode, resetAll } from '@/lib/mockState';
+import { setRouteWeather, setRouteTrack, setTrainTransfer, setPeakMode, resetAll, invalidateCache } from '@/lib/mockState';
 import type { WeatherType, TrackCondition } from '@/lib/mockState';
 
 export const dynamic = 'force-dynamic';
@@ -19,6 +19,9 @@ export async function POST(request: Request) {
     } else if (body.type === 'reset') {
       resetAll();
     }
+
+    // Invalidate cached state so the next GET /api/data returns fresh data
+    invalidateCache();
 
     return NextResponse.json({ success: true });
   } catch {

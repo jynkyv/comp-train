@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
-import { tick } from '@/lib/mockState';
+import { getState } from '@/lib/mockState';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
-  const state = tick();
+  const state = getState();
   return NextResponse.json(state);
 }

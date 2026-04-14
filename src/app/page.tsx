@@ -30,6 +30,7 @@ const FACTOR_META = [
 export default function Dashboard() {
   const [state, setState] = useState<SystemState | null>(null);
   const [activePeak, setActivePeak] = useState<boolean | null>(null);
+  const [selectedTrainId, setSelectedTrainId] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     try { const r = await fetch('/api/data'); setState(await r.json()); } catch (e) { console.error(e); }
@@ -97,7 +98,7 @@ export default function Dashboard() {
           <div className="flex-[40] bg-[#111827] flex flex-col overflow-hidden">
             <PH title="全网列车五维调度矩阵" subtitle="按综合评分降序排列 · 五维因素: 气象/线路/准点/衔接/效益" />
             <div className="flex-1 overflow-auto bg-[#1f2937]">
-              <TrainTable trains={trains} isPeak={isPeakHours} onToggleTransfer={(id, on) => postEvent({ type: 'trainTransfer', trainId: id, hasTransfer: on })} />
+              <TrainTable trains={trains} isPeak={isPeakHours} selectedTrainId={selectedTrainId} onSelectTrain={setSelectedTrainId} onToggleTransfer={(id, on) => postEvent({ type: 'trainTransfer', trainId: id, hasTransfer: on })} />
             </div>
           </div>
           <div className="flex-[60] flex gap-px bg-[#1e293b] overflow-hidden">
@@ -124,11 +125,17 @@ export default function Dashboard() {
 
         {/* Right: Charts & Analysis */}
         <div className="w-[40%] flex flex-col gap-px bg-[#1e293b] overflow-hidden">
-          <div className="flex-[50] bg-[#111827] flex flex-col overflow-hidden">
+          <div className="flex-[35] bg-[#111827] flex flex-col overflow-hidden">
             <PH title="P1目标五维评分雷达" subtitle="多维因素综合分析" />
             <div className="flex-1 p-2"><FactorRadar trains={trains} /></div>
           </div>
-          <div className="flex-[50] bg-[#111827] flex flex-col overflow-hidden">
+          <div className="flex-[35] bg-[#111827] flex flex-col overflow-hidden">
+            <PH title="目标锁定分析" subtitle={selectedTrainId ? `锁定目标: ${selectedTrainId}` : '点击表格中的列车进行锁定'} />
+            <div className="flex-1 overflow-auto p-2">
+              <TargetLockAnalysis trains={trains} selectedId={selectedTrainId} onSelect={setSelectedTrainId} />
+            </div>
+          </div>
+          <div className="flex-[30] bg-[#111827] flex flex-col overflow-hidden">
             <PH title="实时优先级分布" subtitle="正常状态为P1-P3，异常干预降级进入P4" />
             <div className="flex-1 p-2"><PriorityPie trains={trains} /></div>
           </div>
@@ -228,7 +235,7 @@ function RouteControlPanel({ routes, trains, onWeather, onTrack }: {
 
 // ──────── Train Table ────────
 
-function TrainTable({ trains, isPeak, onToggleTransfer }: { trains: Train[]; isPeak: boolean; onToggleTransfer: (id: string, on: boolean) => void }) {
+function TrainTable({ trains, isPeak, selectedTrainId, onSelectTrain, onToggleTransfer }: { trains: Train[]; isPeak: boolean; selectedTrainId: string | null; onSelectTrain: (id: string) => void; onToggleTransfer: (id: string, on: boolean) => void }) {
   return (
     <table className="w-full text-xs text-right whitespace-nowrap">
       <thead>
@@ -251,10 +258,11 @@ function TrainTable({ trains, isPeak, onToggleTransfer }: { trains: Train[]; isP
           const chgClass = t.priorityChanged
             ? (t.priority < t.prevPriority ? 'priority-up' : 'priority-down')
             : '';
+          const isSelected = selectedTrainId === t.id;
           return (
-            <tr key={t.id} className={`border-b border-[#1e293b]/70 hover:bg-[#1e293b] transition-colors ${chgClass}`}>
+            <tr key={t.id} onClick={() => onSelectTrain(t.id)} className={`border-b border-[#1e293b]/70 hover:bg-[#1e293b] transition-colors cursor-pointer ${chgClass} ${isSelected ? 'ring-1 ring-inset ring-cyan-500/60 bg-cyan-950/20' : ''}`}>
               <td className="py-2 px-2 text-left">
-                <span className="font-bold text-white text-sm tracking-wider">{t.id}</span>
+                <span className="font-bold text-white text-sm tracking-wider">{isSelected && <span className="text-cyan-400 mr-1">◎</span>}{t.id}</span>
                 <span className="text-[10px] text-white ml-1">{t.trainType}</span>
               </td>
               <td className="py-2 px-2 text-left">
@@ -278,7 +286,7 @@ function TrainTable({ trains, isPeak, onToggleTransfer }: { trains: Train[]; isP
                 <span className={`font-bold ${t.loadRate >= 80 ? 'text-emerald-400' : t.loadRate >= 40 ? 'text-slate-100' : 'text-red-400'}`}>{t.loadRate}%</span>
               </td>
               <td className="py-2 px-2 text-center">
-                <button onClick={() => onToggleTransfer(t.id, !t.hasTransferTask)}
+                <button onClick={(e) => { e.stopPropagation(); onToggleTransfer(t.id, !t.hasTransferTask); }}
                   className={`text-[10px] px-1.5 py-0.5 rounded-sm border transition-colors ${t.hasTransferTask ? 'border-orange-500 bg-orange-900/30 text-orange-400 font-bold' : 'border-[#1e293b] text-white hover:bg-slate-800'}`}
                 >{t.hasTransferTask ? '🔄紧急' : '无'}</button>
               </td>
@@ -355,6 +363,100 @@ function PriorityPie({ trains }: { trains: Train[] }) {
             <span className="font-bold text-white tabular-nums text-base">{counts[p]}</span>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+// ──────── Target Lock Analysis ────────
+
+function TargetLockAnalysis({ trains, selectedId, onSelect }: { trains: Train[]; selectedId: string | null; onSelect: (id: string) => void }) {
+  const target = selectedId ? trains.find(t => t.id === selectedId) : null;
+
+  if (!target) {
+    return (
+      <div className="h-full flex flex-col items-center justify-center gap-3">
+        <div className="text-slate-500 text-xs tracking-wider">选择列车进行目标锁定分析</div>
+        <div className="flex gap-1.5 flex-wrap justify-center">
+          {trains.map(t => (
+            <button key={t.id} onClick={() => onSelect(t.id)}
+              className="px-2 py-1 text-[10px] font-bold rounded-sm border border-[#1e293b] bg-[#1f2937] text-slate-300 hover:bg-cyan-900/30 hover:border-cyan-600 hover:text-cyan-400 transition-all"
+            >🎯 {t.id}</button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  const factors = FACTOR_META.map(f => ({
+    ...f,
+    value: target[f.key as keyof Train] as number,
+  }));
+
+  const avgScore = factors.reduce((s, f) => s + f.value, 0) / factors.length;
+  const weakest = [...factors].sort((a, b) => a.value - b.value)[0];
+  const strongest = [...factors].sort((a, b) => b.value - a.value)[0];
+
+  return (
+    <div className="flex flex-col gap-2 h-full">
+      {/* Header with quick-switch */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="text-cyan-400 text-sm font-bold">◎ {target.id}</span>
+          <span className="text-[10px] px-1.5 py-0.5 rounded-sm font-bold" style={{ backgroundColor: P_COLORS[target.priority] + '30', color: P_COLORS[target.priority] }}>P{target.priority}</span>
+          <span className="text-[10px] text-slate-400">{target.routeName}</span>
+        </div>
+        <div className="flex gap-1">
+          {trains.filter(t => t.id !== selectedId).map(t => (
+            <button key={t.id} onClick={() => onSelect(t.id)}
+              className="px-1.5 py-0.5 text-[9px] rounded-sm border border-[#1e293b] text-slate-500 hover:bg-cyan-900/30 hover:border-cyan-700 hover:text-cyan-400 transition-all"
+            >{t.id}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* Factor breakdown bars */}
+      <div className="flex flex-col gap-1.5">
+        {factors.map(f => {
+          const barColor = f.value >= 70 ? '#22c55e' : f.value >= 40 ? '#eab308' : '#ef4444';
+          const isWeakest = f.key === weakest.key;
+          return (
+            <div key={f.key} className={`flex items-center gap-2 ${isWeakest ? 'bg-red-950/20 rounded-sm px-1 -mx-1' : ''}`}>
+              <span className="text-[10px] w-10 text-right text-slate-400 shrink-0">{f.icon}{f.label}</span>
+              <div className="flex-1 h-2.5 bg-[#1e293b] rounded-full overflow-hidden">
+                <div className="h-full rounded-full transition-all duration-500" style={{ width: `${f.value}%`, backgroundColor: barColor }} />
+              </div>
+              <span className={`text-[10px] font-bold w-8 text-right tabular-nums ${f.value >= 70 ? 'text-emerald-400' : f.value >= 40 ? 'text-yellow-400' : 'text-red-400'}`}>{f.value}</span>
+              {isWeakest && <span className="text-[9px] text-red-500 font-bold">⚠短板</span>}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Key metrics row */}
+      <div className="grid grid-cols-4 gap-1 mt-1">
+        {[
+          { label: '车速', value: `${target.speed}`, unit: 'km/h', color: 'text-blue-300' },
+          { label: '客流', value: `${target.loadRate}%`, unit: '', color: target.loadRate >= 80 ? 'text-emerald-400' : 'text-slate-300' },
+          { label: 'ETA', value: target.eta >= 999 ? '—' : `${target.eta}`, unit: target.eta < 999 ? '分' : '', color: 'text-slate-300' },
+          { label: '综合', value: target.totalScore.toFixed(1), unit: '', color: 'text-white' },
+        ].map(m => (
+          <div key={m.label} className="bg-[#0f172a] rounded-sm px-2 py-1 text-center">
+            <div className="text-[8px] text-slate-500">{m.label}</div>
+            <div className={`text-xs font-bold ${m.color}`}>{m.value}<span className="text-[8px] text-slate-500">{m.unit}</span></div>
+          </div>
+        ))}
+      </div>
+
+      {/* Assessment */}
+      <div className="bg-[#0f172a] rounded-sm px-2 py-1.5 mt-auto">
+        <div className="text-[10px] text-slate-400 mb-0.5">🔍 智能研判</div>
+        <div className="text-[10px] text-slate-300 leading-relaxed">
+          {target.priorityReason}
+          {weakest.value < 40 && <span className="text-red-400"> · {weakest.icon}{weakest.label}因子严重偏低({weakest.value})，建议优先干预</span>}
+          {avgScore >= 75 && <span className="text-emerald-400"> · 各维度均衡性良好，建议维持当前调度策略</span>}
+          {target.delayMinutes > 10 && <span className="text-yellow-400"> · 晚点{target.delayMinutes}分，影响后续列车接续</span>}
+        </div>
       </div>
     </div>
   );

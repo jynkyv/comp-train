@@ -142,6 +142,8 @@ let tickCount = 0;
 let sysHistory: SystemHistory[] = [];
 let forcePeak: boolean | null = null;
 const prevPriorities = new Map<string, number>();
+let cachedState: SystemState | null = null;
+let lastTickTime = 0;
 
 // Init
 TRAIN_DEFS.forEach(td => {
@@ -156,7 +158,15 @@ TRAIN_DEFS.forEach(td => {
 
 // ─────────────────── Helpers ───────────────────
 
-function rf(min: number, max: number) { return Math.random() * (max - min) + min; }
+/** Deterministic pseudo-random based on seed — same tick + same train always produces same values */
+function seededRandom(seed: number): number {
+  let x = Math.sin(seed) * 10000;
+  return x - Math.floor(x);
+}
+
+function drf(min: number, max: number, seed: number): number {
+  return seededRandom(seed) * (max - min) + min;
+}
 
 function timeStr(): string {
   const d = new Date();
@@ -183,14 +193,17 @@ export function tick(): SystemState {
   let priorityChanges = 0;
 
   // — Build train snapshots —
-  const trains: Train[] = TRAIN_DEFS.map(td => {
+  const trains: Train[] = TRAIN_DEFS.map((td, tdIdx) => {
     const route = routes.find(r => r.id === td.routeId)!;
     const st = trainStates.get(td.id)!;
     const wCfg = WEATHER_CFG[route.weather];
     const tCfg = TRACK_CFG[route.trackCondition];
 
-    // Speed
-    let speed = Math.round(td.designSpeed * wCfg.ratio * tCfg.factor * rf(0.95, 1.05));
+    // Deterministic seed based on tick + train index
+    const baseSeed = tickCount * 100 + tdIdx;
+
+    // Speed (deterministic)
+    let speed = Math.round(td.designSpeed * wCfg.ratio * tCfg.factor * drf(0.95, 1.05, baseSeed + 1));
     speed = Math.max(0, Math.min(td.designSpeed, speed));
 
     // Advance position
@@ -208,9 +221,9 @@ export function tick(): SystemState {
       st.delayMinutes = Math.max(0, st.delayMinutes - 1);
     }
 
-    // Passenger fluctuation (allow both up and down, preventing monotonic draining)
-    const flow = peak ? rf(-15, 45) : rf(-30, 30);
-    if (Math.random() < 0.4) {
+    // Passenger fluctuation (deterministic)
+    const flow = peak ? drf(-15, 45, baseSeed + 2) : drf(-30, 30, baseSeed + 2);
+    if (seededRandom(baseSeed + 3) < 0.4) {
       st.passengers = Math.max(50, Math.min(td.capacity, st.passengers + Math.round(flow)));
     }
     const loadRate = Math.round((st.passengers / td.capacity) * 100);
@@ -249,12 +262,12 @@ export function tick(): SystemState {
       ? { w: 0.10, t: 0.10, p: 0.20, c: 0.15, r: 0.45 }
       : { w: 0.15, t: 0.15, p: 0.20, c: 0.15, r: 0.35 };
 
-    // Add real-time dynamic noise to simulate minor operational fluctuations
-    const dynamicNoise = Number(rf(-3.5, 3.5).toFixed(1));
+    // Add deterministic dynamic noise to simulate minor operational fluctuations
+    const dynamicNoise = Number(drf(-3.5, 3.5, baseSeed + 4).toFixed(1));
     const rawScore = weatherScore * W.w + trackScore * W.t + punctualityScore * W.p + connectivityScore * W.c + revenueScore * W.r + dynamicNoise;
     const totalScore = Number(Math.max(0, Math.min(100, rawScore)).toFixed(1));
 
-    const friction = route.weather === '雪' ? rf(0.55, 0.65) : route.weather === '大雨' ? rf(0.65, 0.75) : route.weather === '雾' ? rf(0.75, 0.82) : rf(0.85, 0.95);
+    const friction = route.weather === '雪' ? drf(0.55, 0.65, baseSeed + 5) : route.weather === '大雨' ? drf(0.65, 0.75, baseSeed + 5) : route.weather === '雾' ? drf(0.75, 0.82, baseSeed + 5) : drf(0.85, 0.95, baseSeed + 5);
 
     return {
       id: td.id, routeId: td.routeId,
@@ -269,7 +282,7 @@ export function tick(): SystemState {
       trackCondition: route.trackCondition,
       isDelayed: st.delayMinutes > 0, delayMinutes: st.delayMinutes,
       hasTransferTask: st.hasTransferTask, affectsFollowing, status,
-      voltage: Number(rf(24.5, 27.5).toFixed(1)),
+      voltage: Number(drf(24.5, 27.5, baseSeed + 6).toFixed(1)),
       brakingDist: Math.round((speed * speed) / 100),
       eta, friction: Number(friction.toFixed(2)),
       timestamp: timeStr(),
@@ -381,20 +394,46 @@ export function setPeakMode(peak: boolean | null) {
 }
 
 export function resetAll() {
-  let changed = false;
   routes.forEach(r => {
-    if (r.weather !== '晴' || r.trackCondition !== 'normal') changed = true;
     r.weather = '晴';
     r.trackCondition = 'normal';
   });
   trainStates.forEach(st => {
-    if (st.hasTransferTask) changed = true;
     st.hasTransferTask = false;
   });
-  if (forcePeak !== null) changed = true;
   forcePeak = null;
   
-  if (changed) {
-    addAlert('success', '[系统恢复] 收到一键复原指令，全网恢复自动检测及常态路况标定');
+  // Clear system logs, history, and priority tracking
+  alertBuffer = [];
+  sysHistory = [];
+  prevPriorities.clear();
+  alertIdSeq = 0;
+  
+  addAlert('success', '[系统恢复] 收到一键复原指令，全网恢复自动检测及常态路况标定，系统日志已清空');
+  
+  // Invalidate cached state so next getState() returns fresh data
+  cachedState = null;
+}
+
+// ─────────────────── State Access (decoupled from tick) ───────────────────
+
+const TICK_INTERVAL_MS = 8000; // tick interval matches frontend polling
+
+/**
+ * Get the current system state snapshot.
+ * Tick only advances if enough time has elapsed since last tick.
+ * Multiple API calls within the same tick window return identical data.
+ */
+export function getState(): SystemState {
+  const now = Date.now();
+  if (!cachedState || now - lastTickTime >= TICK_INTERVAL_MS) {
+    cachedState = tick();
+    lastTickTime = now;
   }
+  return cachedState;
+}
+
+/** Force a fresh tick (called after user events to get immediate response) */
+export function invalidateCache() {
+  cachedState = null;
 }
